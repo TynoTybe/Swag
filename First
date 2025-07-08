@@ -1,1 +1,553 @@
-print(123)
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local Assets = ReplicatedStorage:WaitForChild("Assets")
+local Modules = ReplicatedStorage:WaitForChild("Modules")
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+
+local GeneralModule = require(Modules.General)
+
+local MainFolders = workspace:WaitForChild("MainFolders")
+local TitanFolder = MainFolders:WaitForChild("Titans")
+local Buildings = ReplicatedStorage.Assets.Extra.Building:FindFirstChild("Buildings")
+
+local Player = Players.LocalPlayer
+local character
+local Gear
+local GearModule
+local environment
+local MainLocalScript
+local Main_Local_environment
+local FallDamageOriginalFunction
+local AlreadyHasProdigy
+
+local function Setup()
+	character = Player.Character or Player.CharacterAdded:Wait()
+
+	MainLocalScript = character:WaitForChild("Main_LocalScript", 5)
+	if not MainLocalScript then return end
+
+	Gear = MainLocalScript:WaitForChild("Gear", 5)
+
+	if Gear then
+		environment = getsenv(Gear)
+		AlreadyHasProdigy = environment.Prodigy
+		GearModule = require(Gear)
+	end
+
+	Main_Local_environment = getsenv(MainLocalScript)
+	if Main_Local_environment and not FallDamageOriginalFunction and typeof(Main_Local_environment.FallDamage) == "function" then
+		FallDamageOriginalFunction = Main_Local_environment.FallDamage
+	end
+end
+
+Setup()
+Player.CharacterAdded:Connect(Setup)
+
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+	Name = "Despair Script",
+	Icon = 0,
+	LoadingTitle = "Despair Ultimate Script",
+	LoadingSubtitle = "by Blank",
+	ShowText = "Rayfield",
+	Theme = "Dark Blue",
+
+	ToggleUIKeybind = Enum.KeyCode.F8,
+
+	DisableRayfieldPrompts = true,
+	DisableBuildWarnings = true,
+
+	ConfigurationSaving = {
+		Enabled = false,
+		FolderName = nil,
+		FileName = "Big Hub"
+	},
+
+	Discord = {
+		Enabled = false,
+		Invite = "noinvitelink",
+		RememberJoins = true
+	},
+
+	KeySystem = false,
+	KeySettings = {
+		Title = "Untitled",
+		Subtitle = "Key System",
+		Note = "No method of obtaining the key is provided",
+		FileName = "Key",
+		SaveKey = true,
+		GrabKeyFromSite = false,
+		Key = { "Hello" }
+	}
+})
+
+local MainTab = Window:CreateTab("Home", nil)
+local ExpTab = Window:CreateTab("EXP", nil)
+local KeyBindTab = Window:CreateTab("KeyBinds", nil)
+
+local ESPModule = {
+	IsActive = false,
+	Connection = nil,
+	UpdateThread = nil,
+	Characters = {}
+}
+local FallDamageToggle
+local FallDamageOriginalFunction = nil
+local TitanTouchConnections = {}
+local BuildingsESPInstances = {}
+local selectedBuildingName = nil
+local hammering = false
+local connection = nil
+
+local DefaultKeyBinds = {
+	AntiGrab = Enum.KeyCode.F1,
+	ESP = Enum.KeyCode.F4,
+	FallDamage = Enum.KeyCode.H,
+	RefillGas = Enum.KeyCode.K,
+	Hammering = Enum.KeyCode.B
+}
+
+local TitansSection = MainTab:CreateSection("Titans")
+local AntiTitanGrab_Toggle = MainTab:CreateToggle({
+	Name = "Anti Titan Grab",
+	CurrentValue = false,
+	Flag = "Anti_Titan_Grab",
+	Callback = function(Value)
+		for _, titan in pairs(TitanFolder:GetChildren()) do
+			for _, part in pairs(titan:GetDescendants()) do
+				if part:IsA("BasePart") then
+					local name = part.Name
+					if name == "RightHandCollision" or name == "LeftHandCollision" or name == "HeadCollision" then
+						if Value then
+							TitanTouchConnections[part] = TitanTouchConnections[part] or getconnections(part.Touched)
+							for _, conn in ipairs(TitanTouchConnections[part]) do
+								conn:Disable()
+							end
+						else
+							if TitanTouchConnections[part] then
+								for _, conn in ipairs(TitanTouchConnections[part]) do
+									conn:Enable()
+								end
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+})
+
+local TitansSection = MainTab:CreateSection("Gear")
+local ProdigyToggle = MainTab:CreateToggle({
+	Name = "Prodigy",
+	CurrentValue = AlreadyHasProdigy,
+	Flag = "Prodigy_Toggle",
+	Callback = function(Value)
+		if environment then
+			environment.Prodigy = Value
+		end
+	end
+})
+
+local GearSpeedSlider = MainTab:CreateSlider({
+	Name = "Gear Speed",
+	Range = {75, 85},
+	Increment = 0.01,
+	Suffix = "x",
+	CurrentValue = GearModule.Settings.SPEED,
+	Flag = "GearSpeedSlider",
+	Callback = function(Value)
+		if GearModule and GearModule.Settings then
+			GearModule.Settings.SPEED = Value
+		end
+	end,
+})
+
+local GearRangeSlider = MainTab:CreateSlider({
+	Name = "Gear Range",
+	Range = {300, 700},
+	Increment = 1,
+	Suffix = "x",
+	CurrentValue = GearModule.Settings.RANGE,
+	Flag = "GearSpeedSlider",
+	Callback = function(Value)
+		if GearModule and GearModule.Settings then
+			GearModule.Settings.RANGE = Value
+		end
+	end,
+})
+
+local GearMaxGasSlider = MainTab:CreateSlider({
+	Name = "Gear Max Gas",
+	Range = {120, 240},
+	Increment = 1,
+	Suffix = "x",
+	CurrentValue = GearModule.Settings.MAX_GAS,
+	Flag = "GearSpeedSlider",
+	Callback = function(Value)
+		if GearModule and GearModule.Settings then
+			GearModule.Settings.MAX_GAS = Value
+		end
+	end,
+})
+
+local RefillButton = MainTab:CreateButton({
+	Name = "RefillGas",
+	Callback = function()
+		if GearModule and GearModule.Variables and GearModule.Settings then
+			GearModule.Variables.Gas = GearModule.Settings.MAX_GAS
+		end
+	end,
+})
+
+
+local MainSection = MainTab:CreateSection("Misc")
+local ESP_Toggle = MainTab:CreateToggle({
+	Name = "ESP",
+	CurrentValue = false,
+	Flag = "ESP_Toggle",
+	Callback = function(Value)
+		local function createESP(character)
+			if ESPModule.Characters[character] or character == Player.Character then return end
+
+			local primaryPart = character.PrimaryPart
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+
+			local espGui = Assets.Guis.Admin.ESP:Clone()
+			espGui.Username.Text = character.Name
+			if humanoid then
+				espGui.Health.Text = math.floor(humanoid.Health * 100) / 100
+			end
+			espGui.Distance.Text = "[D]"
+
+			local playerInstance = Players:FindFirstChild(character.Name)
+			if playerInstance then
+				espGui.LoreName.Text = GeneralModule.LoreName(playerInstance)
+			end
+			espGui.LoreName.Visible = playerInstance
+
+			if primaryPart then
+				espGui.Parent = primaryPart
+			end
+
+			ESPModule.Characters[character] = {
+				Gui = espGui,
+				PrimaryPart = primaryPart,
+				Humanoid = humanoid
+			}
+		end
+
+		if Value then
+			for _, character in MainFolders.Characters:GetChildren() do
+				createESP(character)
+			end
+
+			ESPModule.Connection = MainFolders.Characters.ChildAdded:Connect(createESP)
+			ESPModule.UpdateThread = task.spawn(function()
+				while task.wait() do
+					local playerCharacter = Player.Character
+					if playerCharacter and playerCharacter.PrimaryPart then
+						for character, data in pairs(ESPModule.Characters) do
+							if data.Gui and data.PrimaryPart then
+								data.Gui.Distance.Text = "[D]" .. math.round(
+									(playerCharacter.PrimaryPart.Position - data.PrimaryPart.Position).Magnitude
+								)
+							end
+						end
+					end
+				end
+			end)
+		else
+			if ESPModule.Connection then
+				ESPModule.Connection:Disconnect()
+				ESPModule.Connection = nil
+			end
+			if ESPModule.UpdateThread then
+				task.cancel(ESPModule.UpdateThread)
+				ESPModule.UpdateThread = nil
+			end
+			for _, data in pairs(ESPModule.Characters) do
+				if data.Gui then
+					data.Gui:Destroy()
+				end
+			end
+			ESPModule.Characters = {}
+		end
+
+		ESPModule.IsActive = Value
+	end
+})
+
+local FallDamageToggle = MainTab:CreateToggle({
+	Name = "No Fall Damage",
+	CurrentValue = false,
+	Flag = "FallDamage_Toggle",
+	Callback = function(Value)
+		local character = Player.Character
+		if character then
+			local mainScript = character:FindFirstChild("Main_LocalScript")
+			if mainScript then
+				local env = getsenv(mainScript)
+				if env then
+					if not FallDamageOriginalFunction and typeof(env.FallDamage) == "function" then
+						FallDamageOriginalFunction = env.FallDamage
+					end
+					env.FallDamage = Value and function() end or FallDamageOriginalFunction
+				end
+			end
+		end
+	end
+})
+
+
+local ESPInput = KeyBindTab:CreateInput({
+	Name = "ESP Keybind",
+	CurrentValue = DefaultKeyBinds.ESP.Name,
+	PlaceholderText = "Type key name (e.g., F4)",
+	RemoveTextAfterFocusLost = false,
+	Flag = "ESP_Keybind",
+	Callback = function(Text)
+		local success, keyCode = pcall(function()
+			return Enum.KeyCode[Text]
+		end)
+
+		if success then
+			DefaultKeyBinds.ESP = keyCode
+		end
+	end,
+})
+
+local FallInput = KeyBindTab:CreateInput({
+	Name = "No Fall Damage Keybind",
+	CurrentValue = DefaultKeyBinds.FallDamage.Name,
+	PlaceholderText = "Type a key (e.g., H)",
+	RemoveTextAfterFocusLost = false,
+	Flag = "FallDamage_Keybind",
+	Callback = function(Text)
+
+		local success, keyCode = pcall(function()
+			return Enum.KeyCode[Text]
+		end)
+
+		if success and keyCode then
+			DefaultKeyBinds.FallDamage = keyCode
+		end
+	end,
+})
+
+local AntiGrabInput = KeyBindTab:CreateInput({
+	Name = "Anti Grab Keybind",
+	CurrentValue = DefaultKeyBinds.AntiGrab.Name,
+	PlaceholderText = "Type a key (e.g., F1)",
+	RemoveTextAfterFocusLost = false,
+	Flag = "AntiGrab_Keybind",
+	Callback = function(Text)
+		local success, keyCode = pcall(function()
+			return Enum.KeyCode[Text]
+		end)
+
+		if success then
+			DefaultKeyBinds.AntiGrab = keyCode
+		end
+	end,
+})
+
+local RefillGasInput = KeyBindTab:CreateInput({
+	Name = "Refill Gas Keybind",
+	CurrentValue = DefaultKeyBinds.RefillGas.Name,
+	PlaceholderText = "Type a key (e.g., R)",
+	RemoveTextAfterFocusLost = false,
+	Flag = "RefillGas_Keybind",
+	Callback = function(Text)
+		local success, keyCode = pcall(function()
+			return Enum.KeyCode[Text]
+		end)
+		if success and keyCode then
+			DefaultKeyBinds.RefillGas = keyCode
+		end
+	end,
+})
+
+local HammeringInput = KeyBindTab:CreateInput({
+	Name = "Hammering Keybind",
+	CurrentValue = DefaultKeyBinds.Hammering.Name,
+	PlaceholderText = "Type a key (e.g., C)",
+	RemoveTextAfterFocusLost = false,
+	Flag = "Hammering_Keybind",
+	Callback = function(Text)
+		local success, keyCode = pcall(function()
+			return Enum.KeyCode[Text]
+		end)
+
+		if success and keyCode then
+			DefaultKeyBinds.Hammering = keyCode
+		end
+	end,
+})
+
+local MainSection = ExpTab:CreateSection("Main")
+
+local options = {}
+
+if Buildings then
+	for _, building in ipairs(Buildings:GetChildren()) do
+		table.insert(options, building.Name)
+	end
+end
+
+selectedBuildingName = options[1]
+local BuildingDropdown = ExpTab:CreateDropdown({
+	Name = "Select Building",
+	Options = options,
+	CurrentOption = {options[1]},
+	MultipleOptions = false,
+	Flag = "BuildingSelection",
+	Callback = function(selected)
+		selectedBuildingName = selected[1]
+	end,
+})
+local Hammering_Toggle
+Hammering_Toggle = ExpTab:CreateToggle({
+	Name = "Hammering",
+	CurrentValue = false,
+	Flag = "Hammering_Toggle",
+	Callback = function(Value)
+		hammering = Value
+
+		if hammering then
+			connection = RunService.Heartbeat:Connect(function()
+				if not selectedBuildingName then return end
+				local building = Buildings:FindFirstChild(selectedBuildingName)
+				if not building then return end
+				local hitbox = building:FindFirstChild("HitBox")
+				if not hitbox or not hitbox:IsA("BasePart") then return end
+
+				for _, character in workspace.MainFolders.Characters:GetChildren() do
+					if Player.Character ~= character and character:FindFirstChild("HumanoidRootPart") then
+						local dist = (character.HumanoidRootPart.Position - hitbox.Position).Magnitude
+						if dist <= 150 then
+							if connection then
+								connection:Disconnect()
+								connection = nil
+							end
+							hammering = false
+							Hammering_Toggle:Set(false)
+							return
+						end
+					end
+				end
+
+				Remotes.Civ_Life:FireServer("HammerHit", building, hitbox.Position)
+			end)
+		else
+			if connection then
+				connection:Disconnect()
+				connection = nil
+			end
+		end
+	end,
+})
+
+local BuildingsLocation_Toggle = ExpTab:CreateToggle({
+	Name = "Buildings ESP",
+	CurrentValue = false,
+	Flag = "BuildingsESP_Toggle",
+	Callback = function(Value)
+	
+		if Value then
+			for _, building in ipairs(Buildings:GetChildren()) do
+				local hitbox = building:FindFirstChild("HitBox")
+				if hitbox and hitbox:IsA("BasePart") then
+					local color = Color3.fromHSV(math.random(), 1, 1)
+
+					local indicator = Instance.new("Part")
+					indicator.Name = building.Name .. "_HighlightMarker"
+					indicator.Size = hitbox.Size
+					indicator.Anchored = true
+					indicator.CanCollide = false
+					indicator.Transparency = 0
+					indicator.Color = color
+					indicator.CFrame = hitbox.CFrame
+					indicator.Parent = workspace
+
+					local billboard = Instance.new("BillboardGui")
+					billboard.Name = building.Name .. "_Billboard"
+					billboard.Adornee = indicator
+					billboard.Size = UDim2.new(0, 200, 0, 50)
+					billboard.StudsOffset = Vector3.new(0, 3, 0)
+					billboard.AlwaysOnTop = true
+					billboard.Parent = indicator
+
+					local textLabel = Instance.new("TextLabel")
+					textLabel.Size = UDim2.new(1, 0, 1, 0)
+					textLabel.BackgroundTransparency = 1
+					textLabel.Text = building.Name
+					textLabel.TextColor3 = Color3.new(1,1,1)
+					textLabel.TextScaled = true
+					textLabel.Font = Enum.Font.GothamSemibold
+					textLabel.Parent = billboard
+
+					local highlight = Instance.new("Highlight")
+					highlight.Name = building.Name .. "_Highlight"
+					highlight.Adornee = indicator
+					highlight.FillColor = color
+					highlight.OutlineColor = Color3.new(1, 1, 1)
+					highlight.FillTransparency = 0.5
+					highlight.OutlineTransparency = 0
+					highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+					highlight.Parent = indicator
+				end
+			end
+		else
+			for _, v in ipairs(workspace:GetChildren()) do
+				if v:IsA("Part") and v.Name:match("_HighlightMarker$") then
+					v:Destroy()
+				end
+			end
+		end
+	end
+})
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+
+	if input.KeyCode == DefaultKeyBinds.ESP and ESP_Toggle and ESP_Toggle.Set then
+		ESP_Toggle:Set(not ESP_Toggle.CurrentValue)
+
+	elseif input.KeyCode == DefaultKeyBinds.FallDamage and FallDamageToggle and FallDamageToggle.Set then
+		FallDamageToggle:Set(not FallDamageToggle.CurrentValue)
+
+	elseif input.KeyCode == DefaultKeyBinds.AntiGrab and AntiTitanGrab_Toggle and AntiTitanGrab_Toggle.Set then
+		AntiTitanGrab_Toggle:Set(not AntiTitanGrab_Toggle.CurrentValue)
+
+	elseif input.KeyCode == DefaultKeyBinds.RefillGas then
+		if GearModule and GearModule.Variables and GearModule.Settings then
+			GearModule.Variables.Gas = GearModule.Settings.MAX_GAS
+		end
+		
+	elseif input.KeyCode == DefaultKeyBinds.Hammering then
+		Hammering_Toggle:Set(not Hammering_Toggle.CurrentValue)
+		
+	elseif input.KeyCode == ReApplySwagKey then
+		if AntiTitanGrab_Toggle and AntiTitanGrab_Toggle.CurrentValue then
+			for _, titan in TitanFolder:GetChildren() do
+				for _, part in titan:GetDescendants() do
+					if part:IsA("BasePart") then
+						local name = part.Name
+						if name == "RightHandCollision" or name == "LeftHandCollision" or name == "HeadCollision" then
+							for _, conn in ipairs(getconnections(part.Touched)) do
+								conn:Disable()
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+end)
+
+
