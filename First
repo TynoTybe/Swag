@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local Assets = ReplicatedStorage:WaitForChild("Assets")
 local Modules = ReplicatedStorage:WaitForChild("Modules")
@@ -22,6 +23,18 @@ local MainLocalScript
 local Main_Local_environment
 local FallDamageOriginalFunction
 local AlreadyHasProdigy
+
+local GearTrainerToggle
+local gearTrainerWorking = false
+local gearTrainerThread = nil
+local gearTrainerKeyPressState = {}
+local keyNameMap = {
+	["SPACE"] = "Space",
+	["ENTER"] = "Return",
+	["SHIFT"] = "LeftShift",
+	["CTRL"] = "LeftControl",
+	["ALT"] = "LeftAlt"
+}
 
 local function Setup()
 	character = Player.Character or Player.CharacterAdded:Wait()
@@ -87,6 +100,7 @@ local Window = Rayfield:CreateWindow({
 
 local MainTab = Window:CreateTab("Home", nil)
 local ExpTab = Window:CreateTab("EXP", nil)
+local MiscTab = Window:CreateTab("Misc", nil)
 local KeyBindTab = Window:CreateTab("KeyBinds", nil)
 
 local ESPModule = {
@@ -104,11 +118,13 @@ local hammering = false
 local connection = nil
 
 local DefaultKeyBinds = {
-	AntiGrab = Enum.KeyCode.F1,
-	ESP = Enum.KeyCode.F4,
-	FallDamage = Enum.KeyCode.H,
-	RefillGas = Enum.KeyCode.K,
-	Hammering = Enum.KeyCode.B
+	AntiGrab = "F1",
+	ESP = "F4",
+	FallDamage = "H",
+	RefillGas = "K",
+	Hammering = "B",
+	ReApplySwag = "Q",
+	GearTrainer = "F6",
 }
 
 local TitansSection = MainTab:CreateSection("Titans")
@@ -205,8 +221,8 @@ local RefillButton = MainTab:CreateButton({
 })
 
 
-local MainSection = MainTab:CreateSection("Misc")
-local ESP_Toggle = MainTab:CreateToggle({
+local MainSection = MiscTab:CreateSection("Misc")
+local ESP_Toggle = MiscTab:CreateToggle({
 	Name = "ESP",
 	CurrentValue = false,
 	Flag = "ESP_Toggle",
@@ -282,7 +298,7 @@ local ESP_Toggle = MainTab:CreateToggle({
 	end
 })
 
-local FallDamageToggle = MainTab:CreateToggle({
+local FallDamageToggle = MiscTab:CreateToggle({
 	Name = "No Fall Damage",
 	CurrentValue = false,
 	Flag = "FallDamage_Toggle",
@@ -303,88 +319,154 @@ local FallDamageToggle = MainTab:CreateToggle({
 	end
 })
 
+GearTrainerToggle = MiscTab:CreateToggle({
+	Name = "Auto Gear Trainer",
+	CurrentValue = false,
+	Flag = "GearTrainer_Toggle",
+	Callback = function(Value)
+		gearTrainerWorking = Value
 
-local ESPInput = KeyBindTab:CreateInput({
+		if gearTrainerWorking and not gearTrainerThread then
+			gearTrainerThread = task.spawn(function()
+				while gearTrainerWorking do
+					local gui = Player.PlayerGui:FindFirstChild("Gear_Trainer_Test")
+					if gui then
+						local frame = gui:FindFirstChild("Frame")
+						if frame then
+							local keysThisFrame = {}
+							for _, key in frame:GetChildren() do
+								if key.Name == "Bar" then continue end
+								local circle = key:FindFirstChild("Circle")
+								local keyHolder = key:FindFirstChild("Key")
+								local label = keyHolder and keyHolder:FindFirstChild("ButtonText")
+
+								if circle and label and label:IsA("TextLabel") then
+									local rawKey = label.Text:upper()
+									local mappedKey = keyNameMap[rawKey] or rawKey
+									local keyCode = Enum.KeyCode[mappedKey]
+
+									if keyCode and circle.Size.X.Scale <= 1 and circle.Size.Y.Scale <= 1 then
+										keysThisFrame[mappedKey] = true
+										if not gearTrainerKeyPressState[mappedKey] then
+											VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+											task.wait()
+											VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+											gearTrainerKeyPressState[mappedKey] = true
+										end
+									end
+								end
+							end
+							for key, _ in pairs(gearTrainerKeyPressState) do
+								if not keysThisFrame[key] then
+									gearTrainerKeyPressState[key] = nil
+								end
+							end
+						end
+					end
+					task.wait()
+				end
+				gearTrainerThread = nil
+			end)
+		elseif not gearTrainerWorking and gearTrainerThread then
+			task.cancel(gearTrainerThread)
+			gearTrainerThread = nil
+			gearTrainerKeyPressState = {}
+		end
+	end
+})
+
+local ESP_Keybind = KeyBindTab:CreateKeybind({
 	Name = "ESP Keybind",
-	CurrentValue = DefaultKeyBinds.ESP.Name,
-	PlaceholderText = "Type key name (e.g., F4)",
-	RemoveTextAfterFocusLost = false,
+	CurrentKeybind = DefaultKeyBinds.ESP,
+	HoldToInteract = false,
 	Flag = "ESP_Keybind",
-	Callback = function(Text)
-		local success, keyCode = pcall(function()
-			return Enum.KeyCode[Text]
-		end)
-
-		if success then
-			DefaultKeyBinds.ESP = keyCode
+	Callback = function()
+		if ESP_Toggle and ESP_Toggle.Set then
+			ESP_Toggle:Set(not ESP_Toggle.CurrentValue)
 		end
 	end,
 })
 
-local FallInput = KeyBindTab:CreateInput({
+local FallDamage_Keybind = KeyBindTab:CreateKeybind({
 	Name = "No Fall Damage Keybind",
-	CurrentValue = DefaultKeyBinds.FallDamage.Name,
-	PlaceholderText = "Type a key (e.g., H)",
-	RemoveTextAfterFocusLost = false,
+	CurrentKeybind = DefaultKeyBinds.FallDamage,
+	HoldToInteract = false,
 	Flag = "FallDamage_Keybind",
-	Callback = function(Text)
-
-		local success, keyCode = pcall(function()
-			return Enum.KeyCode[Text]
-		end)
-
-		if success and keyCode then
-			DefaultKeyBinds.FallDamage = keyCode
+	Callback = function()
+		if FallDamageToggle and FallDamageToggle.Set then
+			FallDamageToggle:Set(not FallDamageToggle.CurrentValue)
 		end
 	end,
 })
 
-local AntiGrabInput = KeyBindTab:CreateInput({
+local AntiGrab_Keybind = KeyBindTab:CreateKeybind({
 	Name = "Anti Grab Keybind",
-	CurrentValue = DefaultKeyBinds.AntiGrab.Name,
-	PlaceholderText = "Type a key (e.g., F1)",
-	RemoveTextAfterFocusLost = false,
+	CurrentKeybind = DefaultKeyBinds.AntiGrab,
+	HoldToInteract = false,
 	Flag = "AntiGrab_Keybind",
-	Callback = function(Text)
-		local success, keyCode = pcall(function()
-			return Enum.KeyCode[Text]
-		end)
-
-		if success then
-			DefaultKeyBinds.AntiGrab = keyCode
+	Callback = function()
+		if AntiTitanGrab_Toggle and AntiTitanGrab_Toggle.Set then
+			AntiTitanGrab_Toggle:Set(not AntiTitanGrab_Toggle.CurrentValue)
 		end
 	end,
 })
 
-local RefillGasInput = KeyBindTab:CreateInput({
+local RefillGas_Keybind = KeyBindTab:CreateKeybind({
 	Name = "Refill Gas Keybind",
-	CurrentValue = DefaultKeyBinds.RefillGas.Name,
-	PlaceholderText = "Type a key (e.g., R)",
-	RemoveTextAfterFocusLost = false,
+	CurrentKeybind = DefaultKeyBinds.RefillGas,
+	HoldToInteract = false,
 	Flag = "RefillGas_Keybind",
-	Callback = function(Text)
-		local success, keyCode = pcall(function()
-			return Enum.KeyCode[Text]
-		end)
-		if success and keyCode then
-			DefaultKeyBinds.RefillGas = keyCode
+	Callback = function()
+		if GearModule and GearModule.Variables and GearModule.Settings then
+			GearModule.Variables.Gas = GearModule.Settings.MAX_GAS
 		end
 	end,
 })
 
-local HammeringInput = KeyBindTab:CreateInput({
+local Hammering_Keybind = KeyBindTab:CreateKeybind({
 	Name = "Hammering Keybind",
-	CurrentValue = DefaultKeyBinds.Hammering.Name,
-	PlaceholderText = "Type a key (e.g., C)",
-	RemoveTextAfterFocusLost = false,
+	CurrentKeybind = DefaultKeyBinds.Hammering,
+	HoldToInteract = false,
 	Flag = "Hammering_Keybind",
-	Callback = function(Text)
-		local success, keyCode = pcall(function()
-			return Enum.KeyCode[Text]
-		end)
+	Callback = function()
+		if Hammering_Toggle and Hammering_Toggle.Set then
+			Hammering_Toggle:Set(not Hammering_Toggle.CurrentValue)
+		end
+	end,
+})
 
-		if success and keyCode then
-			DefaultKeyBinds.Hammering = keyCode
+local ReApplySwag_Keybind = KeyBindTab:CreateKeybind({
+	Name = "ReApply Swag Keybind",
+	CurrentKeybind = DefaultKeyBinds.ReApplySwag,
+	HoldToInteract = false,
+	Flag = "ReApplySwag_Keybind",
+	Callback = function()
+		if AntiTitanGrab_Toggle and AntiTitanGrab_Toggle.CurrentValue then
+			print(1)
+			for _, titan in TitanFolder:GetChildren() do
+				for _, part in titan:GetDescendants() do
+					if part:IsA("BasePart") then
+						local name = part.Name
+						if name == "RightHandCollision" or name == "LeftHandCollision" or name == "HeadCollision" then
+							for _, conn in ipairs(getconnections(part.Touched)) do
+								conn:Disable()
+							end
+						end
+					end
+				end
+			end
+		end
+	end,
+})
+
+local GearTrainer_Keybind = KeyBindTab:CreateKeybind({
+	Name = "Auto Gear Trainer Keybind",
+	CurrentKeybind = DefaultKeyBinds.GearTrainer,
+	HoldToInteract = false,
+	Flag = "GearTrainer_Keybind",
+	Callback = function()
+		if GearTrainerToggle and GearTrainerToggle.Set then
+			GearTrainerToggle:Set(not GearTrainerToggle.CurrentValue)
 		end
 	end,
 })
@@ -511,43 +593,3 @@ local BuildingsLocation_Toggle = ExpTab:CreateToggle({
 		end
 	end
 })
-
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
-
-	if input.KeyCode == DefaultKeyBinds.ESP and ESP_Toggle and ESP_Toggle.Set then
-		ESP_Toggle:Set(not ESP_Toggle.CurrentValue)
-
-	elseif input.KeyCode == DefaultKeyBinds.FallDamage and FallDamageToggle and FallDamageToggle.Set then
-		FallDamageToggle:Set(not FallDamageToggle.CurrentValue)
-
-	elseif input.KeyCode == DefaultKeyBinds.AntiGrab and AntiTitanGrab_Toggle and AntiTitanGrab_Toggle.Set then
-		AntiTitanGrab_Toggle:Set(not AntiTitanGrab_Toggle.CurrentValue)
-
-	elseif input.KeyCode == DefaultKeyBinds.RefillGas then
-		if GearModule and GearModule.Variables and GearModule.Settings then
-			GearModule.Variables.Gas = GearModule.Settings.MAX_GAS
-		end
-		
-	elseif input.KeyCode == DefaultKeyBinds.Hammering then
-		Hammering_Toggle:Set(not Hammering_Toggle.CurrentValue)
-		
-	elseif input.KeyCode == ReApplySwagKey then
-		if AntiTitanGrab_Toggle and AntiTitanGrab_Toggle.CurrentValue then
-			for _, titan in TitanFolder:GetChildren() do
-				for _, part in titan:GetDescendants() do
-					if part:IsA("BasePart") then
-						local name = part.Name
-						if name == "RightHandCollision" or name == "LeftHandCollision" or name == "HeadCollision" then
-							for _, conn in ipairs(getconnections(part.Touched)) do
-								conn:Disable()
-							end
-						end
-					end
-				end
-			end
-		end
-	end
-end)
-
-
