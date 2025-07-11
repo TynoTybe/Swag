@@ -42,12 +42,15 @@ local function Setup()
 	MainLocalScript = character:WaitForChild("Main_LocalScript", 5)
 	if not MainLocalScript then return end
 
-	Gear = MainLocalScript:WaitForChild("Gear", 5)
-
+	Gear = MainLocalScript:FindFirstChild("Gear") -- use FindFirstChild instead of WaitForChild
 	if Gear then
 		environment = getsenv(Gear)
-		AlreadyHasProdigy = environment.Prodigy
-		GearModule = require(Gear)
+		AlreadyHasProdigy = environment and environment.Prodigy or false
+		pcall(function() GearModule = require(Gear) end)
+	else
+		environment = nil
+		GearModule = nil
+		AlreadyHasProdigy = false
 	end
 
 	Main_Local_environment = getsenv(MainLocalScript)
@@ -372,6 +375,97 @@ GearTrainerToggle = MiscTab:CreateToggle({
 			gearTrainerThread = nil
 			gearTrainerKeyPressState = {}
 		end
+	end
+})
+
+MiscTab:CreateButton({
+	Name = "Show My Level",
+	Callback = function()
+		local Remote = ReplicatedStorage.Remotes:WaitForChild("Main_LocalScript_Function")
+		local stats = Remote:InvokeServer("GetStats")
+		if not stats then
+			Rayfield:Notify({
+				Title = "Error",
+				Content = "Could not retrieve your stats.",
+				Duration = 5,
+				Image = nil,
+			})
+			return
+		end
+
+		local Surgeries_EXP = { Minor = 4; Moderate = 6; Critical = 8; Permanent = 10 }
+		local Resources_EXP = { Iron = 2.5; Coal = 1.5; Silver = 5; Gold = 10; Gas = 1.5; Stone = 1; Log = 1 }
+
+		local function GetLevelFromExp(exp)
+			local level = 1
+			local required = 100
+			while exp >= required do
+				exp -= required
+				level += 1
+				required = math.floor(required * 1.1)
+			end
+			return level
+		end
+
+		local exp = 0
+		exp += (stats.TimeInPD / (60 * 5)) * 5
+		exp += (stats.TitanKills and stats.TitanKills.Normal or 0) * 20
+		exp += (stats.TitanKills and stats.TitanKills.Abnormal or 0) * 80
+		exp += ((stats.TitanBlinds and stats.TitanBlinds.Normal or 0) + (stats.TitanBlinds and stats.TitanBlinds.Abnormal or 0)) * 15
+		exp += stats.AnimalKills * 10
+
+		for playerName, amount in pairs(stats.PlayerKills or {}) do
+			if playerName ~= Player.Name then
+				exp += amount * 70
+			end
+		end
+
+		for _, amount in pairs(stats.Saves or {}) do
+			exp += amount * 15
+		end
+
+		for resource, amount in pairs(stats.ResourcesStored or {}) do
+			exp += amount * 0.4 * (Resources_EXP[resource] or 1)
+		end
+
+		for _, amount in pairs(stats.Smithed or {}) do
+			exp += amount * 5
+		end
+
+		for _, amount in pairs(stats.Surgery or {}) do
+			exp += amount * 8
+		end
+
+		for typeName, info in pairs(stats.Surgeries or {}) do
+			for _, amount in pairs(info) do
+				exp += amount * (Surgeries_EXP[typeName] or 0)
+			end
+		end
+
+		exp += #stats.Avenged * 15
+		exp += stats.Bandaged * 5
+
+		for _, amount in pairs(stats.BandagedKnocked or {}) do
+			exp += amount * 35
+		end
+
+		for _, amount in pairs(stats.Cuffed or {}) do
+			exp += amount * 45
+		end
+
+		exp += (stats.TimeCarrying / (60 * 4)) * 10
+		exp += stats.BuildingHits * 1.25
+		exp += stats.GasPackRefills * 5
+		exp += stats.ExtraExp or 0
+
+		local level = GetLevelFromExp(exp)
+
+		Rayfield:Notify({
+			Title = "Level Info",
+			Content = "You are Level " .. level .. " with " .. math.floor(exp) .. " EXP.",
+			Duration = 3,
+			Image = nil,
+		})
 	end
 })
 
